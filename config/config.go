@@ -2,6 +2,9 @@ package config
 
 import (
 	"fmt"
+	mybot "monitor/bot"
+	"strconv"
+	"strings"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api"
 )
@@ -103,10 +106,48 @@ func (c *Config) GetFloat64(name string) float64 {
 	return c.float64[name].Val
 }
 
-// Cmd handle /set command, if return true, the command was handled.
-func (c *Config) Cmd(update tgbotapi.Update) bool {
-	msg := update.Message.Text
-	fmt.Println(msg)
+// All returns all configuration values in string format.
+func (c *Config) All() string {
+	var sb strings.Builder
 
-	return true
+	sb.WriteString("===Config===\n")
+	for k, v := range c.int {
+		sb.WriteString(fmt.Sprintf("%s: %d\n", k, v.Val))
+	}
+	for k, v := range c.float64 {
+		sb.WriteString(fmt.Sprintf("%s: %.2f\n", k, v.Val))
+	}
+
+	return sb.String()
+}
+
+// CmdSet handle /set command, if return true, the command was handled.
+func (c *Config) CmdSet(bot *mybot.Bot, update tgbotapi.Update) {
+	seg := strings.Split(update.Message.Text, " ")[1:]
+	fmt.Println(seg)
+
+	if len(seg) < 2 {
+		bot.SendMsg(update.Message.Chat.ID, "/set <key> <value>")
+		return
+	}
+
+	if _, ok := c.int[seg[0]]; ok {
+		v := seg[1]
+		if i, err := strconv.Atoi(v); err == nil {
+			bot.SendMsg(update.Message.Chat.ID, fmt.Sprintf("Set %s to %d (previous: %d)", seg[0], i, c.GetInt(seg[0])))
+			c.SetInt(seg[0], i)
+		} else {
+			bot.SendMsg(update.Message.Chat.ID, fmt.Sprintf("Failed to convert \"%s\" to int", v))
+		}
+	} else if _, ok := c.float64[seg[0]]; ok {
+		v := seg[1]
+		if f, err := strconv.ParseFloat(v, 64); err == nil {
+			bot.SendMsg(update.Message.Chat.ID, fmt.Sprintf("Set %s to %.2f (previous: %.2f)", seg[0], f, c.GetFloat64(seg[0])))
+			c.SetFloat64(seg[0], f)
+		} else {
+			bot.SendMsg(update.Message.Chat.ID, fmt.Sprintf("Failed to convert \"%s\" to float64", v))
+		}
+	} else {
+		bot.SendMsg(update.Message.Chat.ID, fmt.Sprintf("Invalid config: %s", seg[0]))
+	}
 }

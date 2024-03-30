@@ -89,10 +89,10 @@ func registerCmds(bot *mybot.Bot) {
 		))
 	})
 
-	bot.AddCmd("set", "Set config value", func(b *mybot.Bot, u tgbotapi.Update) {
-		if !config.Cmd(u) {
-			b.SendMsg(u.Message.Chat.ID, "Invalid config")
-		}
+	bot.AddCmd("set", "Set config value", config.CmdSet)
+
+	bot.AddCmd("config", "Get all config values", func(b *mybot.Bot, u tgbotapi.Update) {
+		b.SendMsg(u.Message.Chat.ID, config.All())
 	})
 }
 
