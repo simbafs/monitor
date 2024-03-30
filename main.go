@@ -3,8 +3,10 @@ package main
 import (
 	"fmt"
 	"log"
+	mybot "monitor/bot"
+	cfg "monitor/config"
+	"monitor/history"
 	"os"
-	"strconv"
 	"time"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api"
@@ -12,197 +14,126 @@ import (
 	"github.com/shirou/gopsutil/mem"
 )
 
-type Config struct {
-	CPUThreshold float64 `json:"cpu_threshold"` // persentage
-	MemThreshold float64 `json:"mem_threshold"` // persentage
-
-	HistoryLength      int     `json:"history_length"`
-	InscreaseThreshold float64 `json:"increase_threshold"`
-
-	Interval int `json:"interval"` // in minutes
-}
-
 var telegramBotToken = os.Getenv("TG_BOT_TOKEN")
 
-var chatIDs = map[int64]bool{
-	901756183: true,
-}
+var config = cfg.New().Float64("cpu_threshold", "CPU threshold", 75.0).
+	Float64("mem_threshold", "Memory threshold", 85.0).
+	Float64("increase_threshold", "Increase threshold", 1.25). // TODO: thie should be a function of precentage of resource
+	Int("interval", "Interval", 1)
 
 var (
-	cpuUsageHistory []float64 // History of CPU usage percentages
-	memUsageHistory []float64 // History of memory usage percentages
+	cpuUsageHistory = history.New(10) // History of CPU usage percentages
+	memUsageHistory = history.New(10) // History of memory usage percentages
 )
 
-var config = Config{
-	CPUThreshold:       75.0,
-	MemThreshold:       85.0,
-	HistoryLength:      10,
-	InscreaseThreshold: 1.25,
-	Interval:           1,
-}
-
 func main() {
-	bot, err := tgbotapi.NewBotAPI(telegramBotToken)
+	bot, err := mybot.New(tgbotapi.NewBotAPI(telegramBotToken))
 	if err != nil {
 		log.Fatal(err)
 	}
 
+	registerCmds(bot)
+
 	// bot.Debug = true
 
-	u := tgbotapi.NewUpdate(0)
-	u.Timeout = 60
+	bot.Boradcast("Bot started")
+	fmt.Println("Bot started")
 
-	updates, err := bot.GetUpdatesChan(u)
-
-	sendMessage(bot, "Bot started")
-
-	go handleCommands(bot, updates)
+	go handleCommands(bot)
 
 	for {
 		checkAndNotify(bot)
-		time.Sleep(time.Duration(config.Interval) * time.Minute) // Check every 5 minutes
+		time.Sleep(time.Duration(config.GetInt("interval")) * time.Minute) // Check every 5 minutes
 	}
 }
 
-func handleCommands(bot *tgbotapi.BotAPI, updates tgbotapi.UpdatesChannel) {
+func registerCmds(bot *mybot.Bot) {
+	bot.AddCmd("subscribe", "Subscribe notifications", func(b *mybot.Bot, u tgbotapi.Update) {
+		if b.IsSubscribed(u.Message.Chat.ID) {
+			b.SendMsg(u.Message.Chat.ID, "Already subscribed")
+		} else {
+			b.Subscribe(u.Message.Chat.ID)
+			b.SendMsg(u.Message.Chat.ID, "Subscribed to notifications")
+		}
+	})
+
+	bot.AddCmd("unsubscribe", "Unsubscribe notifications", func(b *mybot.Bot, u tgbotapi.Update) {
+		if b.IsSubscribed(u.Message.Chat.ID) {
+			b.Unsubscribe(u.Message.Chat.ID)
+			b.SendMsg(u.Message.Chat.ID, "Unsubscribed from notifications")
+		} else {
+			b.SendMsg(u.Message.Chat.ID, "Not subscribed")
+		}
+	})
+
+	bot.AddCmd("status", "Get server status", func(b *mybot.Bot, u tgbotapi.Update) {
+		chatID := u.Message.Chat.ID
+		cpuPercent, err := cpu.Percent(time.Second, false)
+		if err != nil {
+			bot.SendMsg(chatID, "Error getting CPU usage")
+			return
+		}
+		memPercent, err := mem.VirtualMemory()
+		if err != nil {
+			bot.SendMsg(chatID, "Error getting memory usage")
+			return
+		}
+
+		bot.SendMsg(chatID, fmt.Sprintf("===Usage===\nCPU:%.2f%%\nMemory: %.2f%%\n\n===Config===\nCPU Threshold: %.2f%%\nMemory Threshold: %.2f%%\nIncrease Threshold: %.2f\nInterval: %d minutes",
+			cpuPercent[0],
+			memPercent.UsedPercent,
+			config.GetFloat64("cpu_threshold"),
+			config.GetFloat64("mem_threshold"),
+			config.GetFloat64("increase_threshold"),
+			config.GetInt("interval"),
+		))
+	})
+
+	bot.AddCmd("set", "Set config value", func(b *mybot.Bot, u tgbotapi.Update) {
+		if !config.Cmd(u) {
+			b.SendMsg(u.Message.Chat.ID, "Invalid config")
+		}
+	})
+}
+
+func handleCommands(bot *mybot.Bot) {
+	u := tgbotapi.NewUpdate(0)
+	u.Timeout = 60
+	updates, err := bot.Bot.GetUpdatesChan(u)
+	if err != nil {
+		panic(err)
+	}
+
 	for update := range updates {
-		if update.Message == nil || !update.Message.IsCommand() {
-			continue
-		}
-		switch update.Message.Command() {
-		case "subscribe":
-			chatID := update.Message.Chat.ID
-			if chatIDs[chatID] {
-				sendMessage(bot, "Already subscribed")
-			} else {
-				chatIDs[chatID] = true
-				sendMessage(bot, "Subscribed to notifications")
-			}
-		case "unsubscribe":
-			chatID := update.Message.Chat.ID
-			if chatIDs[chatID] {
-				sendMessage(bot, "Unsubscribed from notifications")
-				delete(chatIDs, chatID)
-			} else {
-				sendMessage(bot, "Not subscribed")
-			}
-		case "setcpu":
-			if newThreshold, err := strconv.ParseFloat(update.Message.CommandArguments(), 64); err == nil && newThreshold >= 0 {
-				config.CPUThreshold = newThreshold
-				sendMessage(bot, fmt.Sprintf("CPU threshold set to: %.2f%%", config.CPUThreshold))
-			} else {
-				sendMessage(bot, "Error setting CPU threshold. Please use a valid number.")
-			}
-		case "setmem":
-			if newThreshold, err := strconv.ParseFloat(update.Message.CommandArguments(), 64); err == nil && newThreshold >= 0 {
-				config.MemThreshold = newThreshold
-				sendMessage(bot, fmt.Sprintf("Memory threshold set to: %.2f%%", config.MemThreshold))
-			} else {
-				sendMessage(bot, "Error setting memory threshold. Please use a valid number.")
-			}
-		case "setinterval":
-			if newInterval, err := strconv.Atoi(update.Message.CommandArguments()); err == nil && newInterval > 0 {
-				config.Interval = newInterval
-				sendMessage(bot, fmt.Sprintf("Interval set to: %d minutes", config.Interval))
-			} else {
-				sendMessage(bot, "Error setting interval. Please use a valid number.")
-			}
-		case "setIncreaseThreshold":
-			if newThreshold, err := strconv.ParseFloat(update.Message.CommandArguments(), 64); err == nil && newThreshold >= 0 {
-				config.InscreaseThreshold = newThreshold
-				sendMessage(bot, fmt.Sprintf("Increase threshold set to: %.2f%%", config.InscreaseThreshold))
-			} else {
-				sendMessage(bot, "Error setting increase threshold. Please use a valid number.")
-			}
-		case "status":
-			cpuPercent, err := cpu.Percent(time.Second, false)
-			if err != nil {
-				sendMessage(bot, "Error getting CPU usage")
-				continue
-			}
-			memPercent, err := mem.VirtualMemory()
-			if err != nil {
-				sendMessage(bot, "Error getting memory usage")
-				continue
-			}
-
-			sendMessage(bot, fmt.Sprintf("===Usage===\nCPU:%.2f%%\nMemory: %.2f%%\n\n===Config===\nCPU Threshold: %.2f%%\nMemory Threshold: %.2f%%\nInterval: %d minutes",
-				cpuPercent[0],
-				memPercent.UsedPercent,
-				config.CPUThreshold,
-				config.MemThreshold,
-				config.Interval,
-			))
-		default:
-			// send commands list to user
-			msg := tgbotapi.NewMessage(update.Message.Chat.ID, "Available commands:\n"+
-				"/subscribe - Subscribe to notifications\n"+
-				"/unsubscribe - Unsubscribe from notifications\n"+
-				"/setcpu - Set CPU threshold\n"+
-				"/setmem - Set memory threshold\n"+
-				"/setinterval - Set interval\n"+
-				"/setIncreaseThreshold - Set increase threshold\n"+
-				"/status - Get current status")
-			bot.Send(msg)
-				
-		}
-
+		bot.HandleCmds(update)
 	}
 }
 
-func checkAndNotify(bot *tgbotapi.BotAPI) {
+func checkAndNotify(bot *mybot.Bot) {
 	cpuPercent, err := cpu.Percent(time.Second, false)
 	if err == nil {
-		if cpuPercent[0] > config.CPUThreshold {
-			sendMessage(bot, fmt.Sprintf("High CPU usage detected: %.2f%%", cpuPercent[0]))
+		if cpuPercent[0] > config.GetFloat64("cpu_threshold") {
+			bot.Boradcast(fmt.Sprintf("High CPU usage detected: %.2f%%", cpuPercent[0]))
 		}
 
-		updateHistory(&cpuUsageHistory, cpuPercent[0])
-		avgCPU := average(cpuUsageHistory)
-		if cpuPercent[0] > avgCPU*config.InscreaseThreshold {
-			sendMessage(bot, fmt.Sprintf("Sudden increase in CPU usage detected: %.2f%% (Avg: %.2f%%)", cpuPercent[0], avgCPU))
+		cpuUsageHistory.Append(cpuPercent[0])
+		avgCPU := cpuUsageHistory.Average()
+		if cpuPercent[0] > avgCPU*config.GetFloat64("increase_threshold") {
+			bot.Boradcast(fmt.Sprintf("Sudden increase in CPU usage detected: %.2f%% (Avg: %.2f%%)", cpuPercent[0], avgCPU))
 		}
 	}
 
 	memStat, err := mem.VirtualMemory()
 	if err == nil {
-		if memStat.UsedPercent > config.MemThreshold {
-			sendMessage(bot, fmt.Sprintf("High memory usage detected: Total: %v MB, Used: %v MB, Usage: %.2f%%",
+		if memStat.UsedPercent > config.GetFloat64("mem_threshold") {
+			bot.Boradcast(fmt.Sprintf("High memory usage detected: Total: %v MB, Used: %v MB, Usage: %.2f%%",
 				memStat.Total/1024/1024, memStat.Used/1024/1024, memStat.UsedPercent))
 		}
 
-		updateHistory(&memUsageHistory, memStat.UsedPercent)
-		avgMem := average(memUsageHistory)
-		if memStat.UsedPercent > avgMem*config.InscreaseThreshold {
-			sendMessage(bot, fmt.Sprintf("Sudden increase in memory usage detected: %.2f%% (Avg: %.2f%%)", memStat.UsedPercent, avgMem))
-		}
-	}
-}
-
-func updateHistory(history *[]float64, newValue float64) {
-	if len(*history) >= config.HistoryLength {
-		*history = (*history)[1:]
-	}
-	*history = append(*history, newValue)
-}
-
-func average(values []float64) float64 {
-	if len(values) == 0 {
-		return 0
-	}
-	sum := 0.0
-	for _, v := range values {
-		sum += v
-	}
-	return sum / float64(len(values))
-}
-
-func sendMessage(bot *tgbotapi.BotAPI, message string) {
-	for chatID := range chatIDs {
-		msg := tgbotapi.NewMessage(chatID, message)
-		_, err := bot.Send(msg)
-		if err != nil {
-			log.Printf("Error sending message: %s\n", err)
+		memUsageHistory.Append(memStat.UsedPercent)
+		avgMem := memUsageHistory.Average()
+		if memStat.UsedPercent > avgMem*config.GetFloat64("increase_threshold") {
+			bot.Boradcast(fmt.Sprintf("Sudden increase in memory usage detected: %.2f%% (Avg: %.2f%%)", memStat.UsedPercent, avgMem))
 		}
 	}
 }
