@@ -8,26 +8,57 @@ import (
 
 var now = time.Now
 
+type Record[T any] struct {
+	Data T
+	Time time.Time
+}
+
 // History keep records that in live time. It implement String interface
 type History struct {
 	LiveTime time.Duration
-	data     []float64
-	time     []time.Time
+	records  []Record[float64]
 }
 
 // New creates a new History with the given liveTime.
 func New(liveTime time.Duration) *History {
 	return &History{
 		LiveTime: liveTime,
-		data:     []float64{},
-		time:     []time.Time{},
+		records:  []Record[float64]{},
 	}
+}
+
+// Len returns the number of records in the history
+func (h *History) Len() int {
+	return len(h.records)
+}
+
+// Records returns the records in the history
+func (h *History) Records() []Record[float64] {
+	return h.records
+}
+
+// Data returns the data in the history
+func (h *History) Datas() []float64 {
+	d := make([]float64, h.Len())
+	for i, v := range h.records {
+		d[i] = v.Data
+	}
+	return d
+}
+
+// Times returns the times of the records in the history
+func (h *History) Times() []time.Time {
+	t := make([]time.Time, h.Len())
+	for i, v := range h.records {
+		t[i] = v.Time
+	}
+	return t
 }
 
 // after rettuenrs the index of the first element in the history that is after t
 func (h *History) after(t time.Time) int {
-	for i, v := range h.time {
-		if v.After(t) {
+	for i, v := range h.records {
+		if v.Time.After(t) {
 			return i
 		}
 	}
@@ -39,14 +70,15 @@ func (h *History) update() {
 	end := now().Add(-h.LiveTime)
 	i := h.after(end)
 
-	h.data = h.data[i:]
-	h.time = h.time[i:]
+	h.records = h.records[i:]
 }
 
 // Append adds a new data point to the history
 func (h *History) Append(data float64) {
-	h.data = append(h.data, data)
-	h.time = append(h.time, now())
+	h.records = append(h.records, Record[float64]{
+		Data: data,
+		Time: now(),
+	})
 	h.update()
 }
 
@@ -63,15 +95,15 @@ func avg(data ...float64) float64 {
 func (h *History) Average(duration time.Duration) float64 {
 	h.update()
 	i := h.after(now().Add(-duration))
-	return avg(h.data[i:]...)
+	return avg(h.Datas()[i:]...)
 }
 
 func (h *History) String() string {
 	h.update()
 	n := now()
 	s := ""
-	for i := 0; i < len(h.data); i++ {
-		s += fmt.Sprintf("%f %s\n", h.data[i], h.time[i].Sub(n))
+	for _, v := range h.records {
+		s += fmt.Sprintf("%f %s\n", v.Data, v.Time.Sub(n))
 	}
 
 	return s
