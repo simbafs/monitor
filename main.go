@@ -1,12 +1,15 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
 	"log"
 	mybot "monitor/bot"
 	cfg "monitor/config"
 	"monitor/history"
 	"os"
+	"strconv"
+	"strings"
 	"time"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api"
@@ -22,8 +25,8 @@ var config = cfg.New().Float64("cpu_threshold", "CPU threshold", 75.0).
 	Int("interval", "Interval", 1)
 
 var (
-	cpuUsageHistory = history.New(10 * time.Minute) // History of CPU usage percentages
-	memUsageHistory = history.New(10 * time.Minute) // History of memory usage percentages
+	cpuUsageHistory = history.New(10*time.Minute, "CPU")    // History of CPU usage percentages
+	memUsageHistory = history.New(10*time.Minute, "Memory") // History of memory usage percentages
 )
 
 func main() {
@@ -89,6 +92,44 @@ func registerCmds(bot *mybot.Bot) {
 
 	bot.AddCmd("config", "Get all config values", func(b *mybot.Bot, u tgbotapi.Update) {
 		b.SendMsg(u.Message.Chat.ID, config.All())
+	})
+
+	bot.AddCmd("plot", "Plot resource usage", func(b *mybot.Bot, u tgbotapi.Update) {
+		img, err := history.Plot(cpuUsageHistory, memUsageHistory)
+		if err != nil {
+			b.SendMsg(u.Message.Chat.ID, "Error plotting")
+		}
+
+		var imgBuf bytes.Buffer
+		if _, err := img.WriteTo(&imgBuf); err != nil {
+			b.SendMsg(u.Message.Chat.ID, "Error plotting")
+		}
+
+		file := tgbotapi.FileBytes{Name: "usage.png", Bytes: imgBuf.Bytes()}
+
+		photo := tgbotapi.NewPhotoUpload(u.Message.Chat.ID, file)
+
+		b.Send(photo)
+	})
+
+	bot.AddCmd("add", "Manualy add data point (for debug)", func(b *mybot.Bot, u tgbotapi.Update) {
+		seg := strings.Split(u.Message.Text, " ")
+		n := 1
+		if len(seg) > 1 {
+			var err error
+			n, err = strconv.Atoi(seg[1])
+			if err != nil {
+				b.SendMsg(u.Message.Chat.ID, "Invalid argument")
+				return
+			}
+		}
+		for i := 0; i < n; i++ {
+			checkAndNotify(bot)
+			b.SendMsg(u.Message.Chat.ID, fmt.Sprintf("add %d", i))
+			time.Sleep(1 * time.Second)
+		}
+
+		b.SendMsg(u.Message.Chat.ID, "Done")
 	})
 }
 

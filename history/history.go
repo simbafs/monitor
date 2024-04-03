@@ -16,13 +16,15 @@ type Record[T any] struct {
 // History keep records that in live time. It implement String interface
 type History struct {
 	LiveTime time.Duration
+	Name     string
 	records  []Record[float64]
 }
 
 // New creates a new History with the given liveTime.
-func New(liveTime time.Duration) *History {
+func New(liveTime time.Duration, name string) *History {
 	return &History{
 		LiveTime: liveTime,
+		Name:     name,
 		records:  []Record[float64]{},
 	}
 }

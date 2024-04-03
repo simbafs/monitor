@@ -57,9 +57,14 @@ func (b *Bot) N() int {
 
 // Message
 
+// Send sends a Chattable to a user.
+func (b *Bot) Send(msg tgbotapi.Chattable) {
+	b.Bot.Send(msg)
+}
+
 // SendMsg sends a message to a user.
 func (b *Bot) SendMsg(chatID int64, msg string) {
-	b.Bot.Send(tgbotapi.NewMessage(chatID, msg))
+	b.Send(tgbotapi.NewMessage(chatID, msg))
 }
 
 // Broadcast sends a message to all subscribers.
