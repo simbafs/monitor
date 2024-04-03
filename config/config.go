@@ -9,7 +9,7 @@ import (
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api"
 )
 
-type Val[T int | float64] struct {
+type Val[T any] struct {
 	Val T
 	Def T
 	Des string

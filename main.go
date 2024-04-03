@@ -22,8 +22,8 @@ var config = cfg.New().Float64("cpu_threshold", "CPU threshold", 75.0).
 	Int("interval", "Interval", 1)
 
 var (
-	cpuUsageHistory = history.New(10) // History of CPU usage percentages
-	memUsageHistory = history.New(10) // History of memory usage percentages
+	cpuUsageHistory = history.New(10 * time.Minute) // History of CPU usage percentages
+	memUsageHistory = history.New(10 * time.Minute) // History of memory usage percentages
 )
 
 func main() {
@@ -79,13 +79,9 @@ func registerCmds(bot *mybot.Bot) {
 			return
 		}
 
-		bot.SendMsg(chatID, fmt.Sprintf("===Usage===\nCPU:%.2f%%\nMemory: %.2f%%\n\n===Config===\nCPU Threshold: %.2f%%\nMemory Threshold: %.2f%%\nIncrease Threshold: %.2f\nInterval: %d minutes",
+		bot.SendMsg(chatID, fmt.Sprintf("CPU: %.2f%%\nMemory: %.2f%%",
 			cpuPercent[0],
 			memPercent.UsedPercent,
-			config.GetFloat64("cpu_threshold"),
-			config.GetFloat64("mem_threshold"),
-			config.GetFloat64("increase_threshold"),
-			config.GetInt("interval"),
 		))
 	})
 
@@ -111,13 +107,16 @@ func handleCommands(bot *mybot.Bot) {
 
 func checkAndNotify(bot *mybot.Bot) {
 	cpuPercent, err := cpu.Percent(time.Second, false)
+
+	interval := 10 * time.Minute
+
 	if err == nil {
 		if cpuPercent[0] > config.GetFloat64("cpu_threshold") {
 			bot.Boradcast(fmt.Sprintf("High CPU usage detected: %.2f%%", cpuPercent[0]))
 		}
 
 		cpuUsageHistory.Append(cpuPercent[0])
-		avgCPU := cpuUsageHistory.Average()
+		avgCPU := cpuUsageHistory.Average(interval)
 		if cpuPercent[0] > avgCPU*config.GetFloat64("increase_threshold") {
 			bot.Boradcast(fmt.Sprintf("Sudden increase in CPU usage detected: %.2f%% (Avg: %.2f%%)", cpuPercent[0], avgCPU))
 		}
@@ -126,12 +125,11 @@ func checkAndNotify(bot *mybot.Bot) {
 	memStat, err := mem.VirtualMemory()
 	if err == nil {
 		if memStat.UsedPercent > config.GetFloat64("mem_threshold") {
-			bot.Boradcast(fmt.Sprintf("High memory usage detected: Total: %v MB, Used: %v MB, Usage: %.2f%%",
-				memStat.Total/1024/1024, memStat.Used/1024/1024, memStat.UsedPercent))
+			bot.Boradcast(fmt.Sprintf("High memory usage detected: %.2f%%", memStat.UsedPercent))
 		}
 
 		memUsageHistory.Append(memStat.UsedPercent)
-		avgMem := memUsageHistory.Average()
+		avgMem := memUsageHistory.Average(interval)
 		if memStat.UsedPercent > avgMem*config.GetFloat64("increase_threshold") {
 			bot.Boradcast(fmt.Sprintf("Sudden increase in memory usage detected: %.2f%% (Avg: %.2f%%)", memStat.UsedPercent, avgMem))
 		}
