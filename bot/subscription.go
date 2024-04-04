@@ -1,12 +1,10 @@
 package bot
 
-import "context"
-
-// subscription management
-
 // Subscribe adds a user to the list of subscribers.
 func (b *Bot) Subscribe(chatID int64) {
-	b.subscribers[chatID] = context.Background()
+	b.subscribers[chatID] = Subscriber{
+		Value: map[string]interface{}{},
+	}
 }
 
 // UnSubscribe removes a user from the list of subscribers.
@@ -23,4 +21,9 @@ func (b *Bot) IsSubscribed(chatID int64) bool {
 // N returns the number of subscribers.
 func (b *Bot) N() int {
 	return len(b.subscribers)
+}
+
+func (b *Bot) GetSubscriber(chatID int64) (Subscriber, bool) {
+	s, ok := b.subscribers[chatID]
+	return s, ok
 }

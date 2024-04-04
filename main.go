@@ -42,7 +42,7 @@ func main() {
 	bot.Boradcast("Bot started")
 	fmt.Println("Bot started")
 
-	go handleCommands(bot)
+	go bot.HandleUpdates()
 
 	for {
 		checkAndNotify(bot)
@@ -149,20 +149,24 @@ func registerCmdsAndBtn(bot *mybot.Bot) {
 	bot.AddButton("plot", func(b *mybot.Bot, u tgbotapi.Update) {
 		plot(b, u.CallbackQuery.Message.Chat.ID)
 	})
-}
 
-func handleCommands(bot *mybot.Bot) {
-	u := tgbotapi.NewUpdate(0)
-	u.Timeout = 60
-	updates := bot.Bot.GetUpdatesChan(u)
-
-	for update := range updates {
-		if update.Message != nil && update.Message.IsCommand() {
-			bot.HandleCmds(update)
-		} else if update.CallbackQuery != nil {
-			bot.HandleButton(update)
+	bot.AddCmd("hi", "Example command for waiting", func(b *mybot.Bot, u tgbotapi.Update) {
+		forceReply := tgbotapi.ForceReply{
+			ForceReply:            true,
+			InputFieldPlaceholder: "What's your name?",
 		}
-	}
+		msg := tgbotapi.NewMessage(u.Message.Chat.ID, "What's your name?")
+		msg.ReplyMarkup = forceReply
+		b.Send(msg)
+		b.Wait(u.Message.Chat.ID, "name", func(b *mybot.Bot, u tgbotapi.Update) {
+			b.SendMsg(u.Message.Chat.ID, "Hello, "+u.Message.Text)
+		})
+	})
+
+	bot.AddCmd("cancel", "Cancel waiting", func(b *mybot.Bot, u tgbotapi.Update) {
+		b.Cancel(u.Message.Chat.ID)
+		b.SendMsg(u.Message.Chat.ID, "Cancelled")
+	})
 }
 
 func plot(b *mybot.Bot, chatID int64) {

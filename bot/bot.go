@@ -1,7 +1,7 @@
 package bot
 
 import (
-	"context"
+	"log"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
@@ -13,51 +13,64 @@ type Cmd struct {
 	Description string
 }
 
+type Wait struct {
+	Key  string
+	Hook UpdateHandleFunc
+}
+
+type Subscriber struct {
+	Value map[string]interface{}
+}
+
 type Bot struct {
 	Bot         *tgbotapi.BotAPI
-	subscribers map[int64]context.Context
+	subscribers map[int64]Subscriber
 	cmd         map[string]Cmd
 	button      map[string]UpdateHandleFunc
+	wait        map[int64]Wait
 }
 
 func New(bot *tgbotapi.BotAPI, err error) (*Bot, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Bot{
-		Bot: bot,
-		subscribers: map[int64]context.Context{
-			901756183: context.Background(), // @simbafs
-		},
-		cmd:    map[string]Cmd{},
-		button: map[string]UpdateHandleFunc{},
-	}, nil
-}
-
-// Message
-
-func (b *Bot) Request(c tgbotapi.Chattable) (*tgbotapi.APIResponse, error) {
-	return b.Bot.Request(c)
-}
-
-// Send sends a Chattable to a user.
-func (b *Bot) Send(msg tgbotapi.Chattable) (tgbotapi.Message, error) {
-	return b.Bot.Send(msg)
-}
-
-// SendMsg sends a message to a user.
-func (b *Bot) SendMsg(chatID int64, msg string) (tgbotapi.Message, error) {
-	return b.Send(tgbotapi.NewMessage(chatID, msg))
-}
-
-// Broadcast sends a message to all subscribers.
-func (b *Bot) Boradcast(msg string) {
-	for chatID := range b.subscribers {
-		b.SendMsg(chatID, msg)
+	b := &Bot{
+		Bot:         bot,
+		subscribers: map[int64]Subscriber{},
+		cmd:         map[string]Cmd{},
+		button:      map[string]UpdateHandleFunc{},
+		wait:        map[int64]Wait{},
 	}
+
+	b.Subscribe(901756183) // @simbafs, for testing
+
+	return b, nil
 }
 
-// Context returns the context of a user.
-func (b *Bot) Context(chatID int64) context.Context {
-	return b.subscribers[chatID]
+func (b *Bot) HandleUpdates() {
+	u := tgbotapi.NewUpdate(0)
+	u.Timeout = 60
+	updates := b.Bot.GetUpdatesChan(u)
+
+	for update := range updates {
+		if update.Message != nil {
+			if update.Message.IsCommand() {
+				b.HandleCmds(update)
+			} else if update.Message.Text != "" {
+				if b.MatchWatting(update) {
+					// TODO
+
+					continue
+				}
+
+				log.Printf("unknown message: %s\n", update.Message.Text)
+			} else {
+				log.Printf("unknown message: %v\n", update.Message)
+			}
+		} else if update.CallbackQuery != nil {
+			b.HandleButton(update)
+		} else {
+			log.Printf("unknown update: %v", update)
+		}
+	}
 }

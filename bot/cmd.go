@@ -2,7 +2,6 @@ package bot
 
 import tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 
-// command
 
 func (b *Bot) AddCmd(cmd string, description string, f UpdateHandleFunc) {
 	b.cmd[cmd] = Cmd{
