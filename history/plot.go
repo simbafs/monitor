@@ -29,6 +29,10 @@ func Plot(histories ...*History) (io.WriterTo, error) {
 	p.Y.Label.Text = "Persentage"
 	p.Add(plotter.NewGrid())
 
+	// set y limite
+	p.Y.Min = 0
+	p.Y.Max = 100
+
 	lines := []interface{}{}
 
 	for _, h := range histories {
