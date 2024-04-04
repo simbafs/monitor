@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api"
+	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"github.com/shirou/gopsutil/cpu"
 	"github.com/shirou/gopsutil/mem"
 )
@@ -35,7 +35,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	registerCmds(bot)
+	registerCmdsAndBtn(bot)
 
 	// bot.Debug = true
 
@@ -50,7 +50,7 @@ func main() {
 	}
 }
 
-func registerCmds(bot *mybot.Bot) {
+func registerCmdsAndBtn(bot *mybot.Bot) {
 	bot.AddCmd("subscribe", "Subscribe notifications", func(b *mybot.Bot, u tgbotapi.Update) {
 		if b.IsSubscribed(u.Message.Chat.ID) {
 			b.SendMsg(u.Message.Chat.ID, "Already subscribed")
@@ -95,21 +95,7 @@ func registerCmds(bot *mybot.Bot) {
 	})
 
 	bot.AddCmd("plot", "Plot resource usage", func(b *mybot.Bot, u tgbotapi.Update) {
-		img, err := history.Plot(cpuUsageHistory, memUsageHistory)
-		if err != nil {
-			b.SendMsg(u.Message.Chat.ID, "Error plotting")
-		}
-
-		var imgBuf bytes.Buffer
-		if _, err := img.WriteTo(&imgBuf); err != nil {
-			b.SendMsg(u.Message.Chat.ID, "Error plotting")
-		}
-
-		file := tgbotapi.FileBytes{Name: "usage.png", Bytes: imgBuf.Bytes()}
-
-		photo := tgbotapi.NewPhotoUpload(u.Message.Chat.ID, file)
-
-		b.Send(photo)
+		plot(b, u.Message.Chat.ID)
 	})
 
 	bot.AddCmd("add", "Manualy add data point (for debug)", func(b *mybot.Bot, u tgbotapi.Update) {
@@ -131,18 +117,65 @@ func registerCmds(bot *mybot.Bot) {
 
 		b.SendMsg(u.Message.Chat.ID, "Done")
 	})
+
+	plotBtn := tgbotapi.NewInlineKeyboardMarkup(
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("Plot", "plot"),
+		),
+	)
+
+	bot.AddCmd("plotBtn", "Send a message with a button to exec plot command", func(b *mybot.Bot, u tgbotapi.Update) {
+		msg := tgbotapi.NewMessage(u.Message.Chat.ID, "Click to plot")
+		msg.ReplyMarkup = plotBtn
+		m, err := b.Send(msg)
+
+		if err == nil {
+			// pin the message
+			pin := tgbotapi.PinChatMessageConfig{
+				ChatID:              u.Message.Chat.ID,
+				MessageID:           m.MessageID,
+				DisableNotification: true,
+			}
+			b.Request(pin)
+		}
+	})
+
+	bot.AddButton("plot", func(b *mybot.Bot, u tgbotapi.Update) {
+		plot(b, u.CallbackQuery.Message.Chat.ID)
+	})
 }
 
 func handleCommands(bot *mybot.Bot) {
 	u := tgbotapi.NewUpdate(0)
 	u.Timeout = 60
-	updates, err := bot.Bot.GetUpdatesChan(u)
-	if err != nil {
-		panic(err)
-	}
+	updates := bot.Bot.GetUpdatesChan(u)
 
 	for update := range updates {
-		bot.HandleCmds(update)
+		if update.Message != nil && update.Message.IsCommand() {
+			bot.HandleCmds(update)
+		} else if update.CallbackQuery != nil {
+			bot.HandleButton(update)
+		}
+	}
+}
+
+func plot(b *mybot.Bot, chatID int64) {
+	img, err := history.Plot(cpuUsageHistory, memUsageHistory)
+	if err != nil {
+		b.SendMsg(chatID, "Error plotting")
+	}
+
+	var imgBuf bytes.Buffer
+	if _, err := img.WriteTo(&imgBuf); err != nil {
+		b.SendMsg(chatID, "Error plotting")
+	}
+
+	file := tgbotapi.FileBytes{Name: "usage.png", Bytes: imgBuf.Bytes()}
+
+	photo := tgbotapi.NewPhoto(chatID, file)
+
+	if _, err := b.Send(photo); err != nil {
+		b.SendMsg(chatID, err.Error())
 	}
 }
 

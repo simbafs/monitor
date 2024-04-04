@@ -19,7 +19,7 @@ func TestHistory(t *testing.T) {
 		return n
 	}
 
-	h := New(10 * time.Minute)
+	h := New(10 * time.Minute, "test")
 	fmt.Printf("live time; %v\n", h.LiveTime)
 
 	h.Append(1)
