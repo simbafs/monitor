@@ -12,5 +12,9 @@ func (b *Bot) HandleButton(update tgbotapi.Update) {
 	if !ok {
 		return
 	}
+
 	f(b, update)
+
+	callback := tgbotapi.NewCallback(update.CallbackQuery.ID, "")
+	b.Request(callback)
 }

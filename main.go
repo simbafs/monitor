@@ -125,6 +125,12 @@ func registerCmdsAndBtn(bot *mybot.Bot) {
 	)
 
 	bot.AddCmd("plotBtn", "Send a message with a button to exec plot command", func(b *mybot.Bot, u tgbotapi.Update) {
+		// unpin all
+		unpinConfig := tgbotapi.UnpinAllChatMessagesConfig{
+			ChatID: u.Message.Chat.ID,
+		}
+		bot.Request(unpinConfig)
+
 		msg := tgbotapi.NewMessage(u.Message.Chat.ID, "Click to plot")
 		msg.ReplyMarkup = plotBtn
 		m, err := b.Send(msg)
