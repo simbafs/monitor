@@ -55,7 +55,7 @@ func (b *Bot) HandleUpdates() {
 	for update := range updates {
 		if update.Message != nil {
 			if update.Message.IsCommand() {
-				b.HandleCmds(update)
+				go b.HandleCmds(update)
 			} else if update.Message.Text != "" {
 				if b.MatchWatting(update) {
 					// TODO
@@ -68,7 +68,7 @@ func (b *Bot) HandleUpdates() {
 				log.Printf("unknown message: %v\n", update.Message)
 			}
 		} else if update.CallbackQuery != nil {
-			b.HandleButton(update)
+			go b.HandleButton(update)
 		} else {
 			log.Printf("unknown update: %v", update)
 		}

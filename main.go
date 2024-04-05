@@ -192,7 +192,9 @@ func isSuddenlyIncrease(curr float64, history *history.History) bool {
 	avg := history.Average(10 * time.Minute)
 
 	// TODO: This formula is not stable, it need to be checked
-	if avg < 10 {
+	if avg < 1 {
+		return curr > avg*10
+	} else if avg < 10 {
 		return curr > avg*3
 	} else if avg < 30 {
 		return curr > avg*2
