@@ -3,6 +3,7 @@ package history
 
 import (
 	"fmt"
+	"math"
 	"time"
 )
 
@@ -98,6 +99,21 @@ func (h *History) Average(duration time.Duration) float64 {
 	h.update()
 	i := h.after(now().Add(-duration))
 	return avg(h.Datas()[i:]...)
+}
+
+func (h *History) StdDev(duration time.Duration) float64 {
+	h.update()
+	i := h.after(now().Add(-duration))
+
+	sum2 := 0.0
+
+	for _, v := range h.records[i:] {
+		sum2 += v.Data * v.Data
+	}
+
+	n := float64(len(h.records[i:]))
+	avg := avg(h.Datas()[i:]...)
+	return math.Sqrt(sum2/n - avg*avg)
 }
 
 func (h *History) String() string {

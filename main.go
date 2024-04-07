@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"log"
+	"math"
 	mybot "monitor/bot"
 	cfg "monitor/config"
 	"monitor/history"
@@ -21,12 +22,15 @@ var telegramBotToken = os.Getenv("TG_BOT_TOKEN")
 
 var config = cfg.New().Float64("cpu_threshold", "CPU threshold", 75.0).
 	Float64("mem_threshold", "Memory threshold", 85.0).
+	Float64("increase_threshold", "Increase threshold (in how many standard deviation)", 2.0).
 	Int("interval", "Interval", 1)
 
 var (
 	cpuUsageHistory = history.New(30*time.Minute, "CPU")    // History of CPU usage percentages
 	memUsageHistory = history.New(30*time.Minute, "Memory") // History of memory usage percentages
 )
+
+var avgInterval = 10 * time.Minute
 
 func main() {
 	bot, err := mybot.New(tgbotapi.NewBotAPI(telegramBotToken))
@@ -81,9 +85,22 @@ func registerCmdsAndBtn(bot *mybot.Bot) {
 			return
 		}
 
-		bot.SendMsg(chatID, fmt.Sprintf("CPU: %.2f%%\nMemory: %.2f%%",
+		cpuAvg := cpuUsageHistory.Average(avgInterval)
+		memAvg := memUsageHistory.Average(avgInterval)
+		cpuStddev := cpuUsageHistory.StdDev(avgInterval)
+		memStddev := memUsageHistory.StdDev(avgInterval)
+
+		bot.SendMsg(chatID, fmt.Sprintf(`===Current Value===
+CPU: %.2f%%
+Memory: %.2f%%
+
+=====Average=====
+CPU: %.2f%% (±%.2f)
+Memory: %.2f%% (±%.2f)`,
 			cpuPercent[0],
 			memPercent.UsedPercent,
+			cpuAvg, cpuStddev,
+			memAvg, memStddev,
 		))
 	})
 
@@ -188,36 +205,27 @@ func plot(b *mybot.Bot, chatID int64) {
 	}
 }
 
-func isSuddenlyIncrease(curr float64, history *history.History) bool {
-	avg := history.Average(10 * time.Minute)
+func isSuddenlyIncrease(curr float64, history *history.History) (float64, bool) {
+	avg := history.Average(avgInterval)
+	stddev := history.StdDev(avgInterval)
 
-	// TODO: This formula is not stable, it need to be checked
-	if avg < 1 {
-		return curr > avg*10
-	} else if avg < 10 {
-		return curr > avg*3
-	} else if avg < 30 {
-		return curr > avg*2
-	} else if avg < 60 {
-		return curr > avg*1.5
-	} else {
-		return curr > avg*1.2
-	}
+	z := math.Abs((curr - avg) / stddev)
+
+	threshold := config.GetFloat64("increase_threshold")
+
+	return z, z > threshold
 }
 
 func checkAndNotify(bot *mybot.Bot) {
 	cpuPercent, err := cpu.Percent(time.Second, false)
-
-	avgInterval := 10 * time.Minute
 
 	if err == nil {
 		if cpuPercent[0] > config.GetFloat64("cpu_threshold") {
 			bot.Boradcast(fmt.Sprintf("High CPU usage detected: %.2f%%", cpuPercent[0]))
 		}
 
-		if isSuddenlyIncrease(cpuPercent[0], cpuUsageHistory) {
-			avgCPU := cpuUsageHistory.Average(avgInterval)
-			bot.Boradcast(fmt.Sprintf("Sudden increase in CPU usage detected: %.2f%% (Avg: %.2f%%)", cpuPercent[0], avgCPU))
+		if z, yes := isSuddenlyIncrease(cpuPercent[0], cpuUsageHistory); yes {
+			bot.Boradcast(fmt.Sprintf("Sudden increase in CPU usage detected: %.2f%% (z = %.2f)", cpuPercent[0], z))
 		}
 
 		cpuUsageHistory.Append(cpuPercent[0])
@@ -229,9 +237,8 @@ func checkAndNotify(bot *mybot.Bot) {
 			bot.Boradcast(fmt.Sprintf("High memory usage detected: %.2f%%", memStat.UsedPercent))
 		}
 
-		if isSuddenlyIncrease(memStat.UsedPercent, memUsageHistory) {
-			avgMem := memUsageHistory.Average(avgInterval)
-			bot.Boradcast(fmt.Sprintf("Sudden increase in memory usage detected: %.2f%% (Avg: %.2f%%)", memStat.UsedPercent, avgMem))
+		if z, yes := isSuddenlyIncrease(memStat.UsedPercent, memUsageHistory); yes {
+			bot.Boradcast(fmt.Sprintf("Sudden increase in memory usage detected: %.2f%% (z = %.2f)", memStat.UsedPercent, z))
 		}
 
 		memUsageHistory.Append(memStat.UsedPercent)
