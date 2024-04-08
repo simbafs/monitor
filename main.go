@@ -54,7 +54,7 @@ func main() {
 }
 
 func registerCmdsAndBtn(bot *mybot.Bot) {
-	bot.AddCmd("subscribe", "Subscribe notifications", func(b *mybot.Bot, u tgbotapi.Update) {
+	bot.AddCmd("subscribe", "Subscribe notifications", false, func(b *mybot.Bot, u tgbotapi.Update) {
 		if b.IsSubscribed(u.Message.Chat.ID) {
 			b.SendMsg(u.Message.Chat.ID, "Already subscribed")
 		} else {
@@ -63,7 +63,7 @@ func registerCmdsAndBtn(bot *mybot.Bot) {
 		}
 	})
 
-	bot.AddCmd("unsubscribe", "Unsubscribe notifications", func(b *mybot.Bot, u tgbotapi.Update) {
+	bot.AddCmd("unsubscribe", "Unsubscribe notifications", false, func(b *mybot.Bot, u tgbotapi.Update) {
 		if b.IsSubscribed(u.Message.Chat.ID) {
 			b.Unsubscribe(u.Message.Chat.ID)
 			b.SendMsg(u.Message.Chat.ID, "Unsubscribed from notifications")
@@ -72,7 +72,7 @@ func registerCmdsAndBtn(bot *mybot.Bot) {
 		}
 	})
 
-	bot.AddCmd("status", "Get server status", func(b *mybot.Bot, u tgbotapi.Update) {
+	bot.AddCmd("status", "Get server status", false, func(b *mybot.Bot, u tgbotapi.Update) {
 		chatID := u.Message.Chat.ID
 		cpuPercent, err := cpu.Percent(time.Second, false)
 		if err != nil {
@@ -104,17 +104,17 @@ Memory: %.2f%% (±%.2f)`,
 		))
 	})
 
-	bot.AddCmd("set", "Set config value", config.CmdSet)
+	bot.AddCmd("set", "Set config value", false, config.CmdSet)
 
-	bot.AddCmd("config", "Get all config values", func(b *mybot.Bot, u tgbotapi.Update) {
+	bot.AddCmd("config", "Get all config values", false, func(b *mybot.Bot, u tgbotapi.Update) {
 		b.SendMsg(u.Message.Chat.ID, config.All())
 	})
 
-	bot.AddCmd("plot", "Plot resource usage", func(b *mybot.Bot, u tgbotapi.Update) {
+	bot.AddCmd("plot", "Plot resource usage", false, func(b *mybot.Bot, u tgbotapi.Update) {
 		plot(b, u.Message.Chat.ID)
 	})
 
-	bot.AddCmd("add", "Manualy add data point (for debug)", func(b *mybot.Bot, u tgbotapi.Update) {
+	bot.AddCmd("add", "Manualy add data point (for debug)", true, func(b *mybot.Bot, u tgbotapi.Update) {
 		seg := strings.Split(u.Message.Text, " ")
 		n := 1
 		if len(seg) > 1 {
@@ -140,7 +140,7 @@ Memory: %.2f%% (±%.2f)`,
 		),
 	)
 
-	bot.AddCmd("plotBtn", "Send a message with a button to exec plot command", func(b *mybot.Bot, u tgbotapi.Update) {
+	bot.AddCmd("plotbtn", "Send a message with a button to exec plot command", true, func(b *mybot.Bot, u tgbotapi.Update) {
 		// unpin all
 		unpinConfig := tgbotapi.UnpinAllChatMessagesConfig{
 			ChatID: u.Message.Chat.ID,
@@ -166,7 +166,7 @@ Memory: %.2f%% (±%.2f)`,
 		plot(b, u.CallbackQuery.Message.Chat.ID)
 	})
 
-	bot.AddCmd("hi", "Example command for waiting", func(b *mybot.Bot, u tgbotapi.Update) {
+	bot.AddCmd("hi", "Example command for waiting", true, func(b *mybot.Bot, u tgbotapi.Update) {
 		forceReply := tgbotapi.ForceReply{
 			ForceReply:            true,
 			InputFieldPlaceholder: "What's your name?",
@@ -179,12 +179,43 @@ Memory: %.2f%% (±%.2f)`,
 		})
 	})
 
-	bot.AddCmd("cancel", "Cancel waiting", func(b *mybot.Bot, u tgbotapi.Update) {
+	bot.AddCmd("cancel", "Cancel waiting", true, func(b *mybot.Bot, u tgbotapi.Update) {
 		b.Cancel(u.Message.Chat.ID)
 		b.SendMsg(u.Message.Chat.ID, "Cancelled")
 	})
+
+	bot.AddCmd("menu", "set commands menu", true, setMenu)
 }
 
+// setMenu set the bot's command menu
+func setMenu(b *mybot.Bot, u tgbotapi.Update) {
+	deleteCommandConfig := tgbotapi.NewDeleteMyCommands()
+	b.Request(deleteCommandConfig)
+
+	setConfig := tgbotapi.NewSetMyCommandsWithScope(tgbotapi.NewBotCommandScopeAllPrivateChats())
+
+	for cmd, C := range b.Cmds() {
+		if C.Hide {
+			continue
+		}
+		log.Println(cmd, C.Description)
+		setConfig.Commands = append(setConfig.Commands, tgbotapi.BotCommand{
+			Command:     cmd,
+			Description: C.Description,
+		})
+	}
+
+	log.Println(setConfig.Commands)
+
+	_, err := b.Request(setConfig)
+	if err != nil {
+		b.SendMsg(u.Message.Chat.ID, err.Error())
+	} else {
+		b.SendMsg(u.Message.Chat.ID, "doen")
+	}
+}
+
+// plot plots the CPU and memory usage history and sends the plot to the chat
 func plot(b *mybot.Bot, chatID int64) {
 	img, err := history.Plot(cpuUsageHistory, memUsageHistory)
 	if err != nil {

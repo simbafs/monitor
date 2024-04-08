@@ -11,6 +11,7 @@ type UpdateHandleFunc func(*Bot, tgbotapi.Update)
 type Cmd struct {
 	Handler     UpdateHandleFunc
 	Description string
+	Hide        bool
 }
 
 type Wait struct {
