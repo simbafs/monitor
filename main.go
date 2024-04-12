@@ -185,6 +185,29 @@ Memory: %.2f%% (±%.2f)`,
 	})
 
 	bot.AddCmd("menu", "set commands menu", true, setMenu)
+
+	bot.AddCmd("history", "Show history", false, func(b *mybot.Bot, u tgbotapi.Update) {
+		seg := strings.Split(u.Message.Text, " ")
+		if len(seg) < 2 {
+			b.SendMsg(u.Message.Chat.ID, "Invalid argument")
+			return
+		}
+
+		historyName := seg[1]
+		var h *history.History
+		switch historyName {
+		case "cpu":
+			h = cpuUsageHistory
+		case "mem":
+			h = memUsageHistory
+
+		default:
+			b.SendMsg(u.Message.Chat.ID, "Invalid argument")
+			return
+		}
+
+		b.SendMsg(u.Message.Chat.ID, h.String())
+	})
 }
 
 // setMenu set the bot's command menu
@@ -239,6 +262,10 @@ func plot(b *mybot.Bot, chatID int64) {
 func isSuddenlyIncrease(curr float64, history *history.History) (float64, bool) {
 	avg := history.Average(avgInterval)
 	stddev := history.StdDev(avgInterval)
+
+	if curr < 5.0 {
+		return 0, false
+	}
 
 	z := math.Abs((curr - avg) / stddev)
 
