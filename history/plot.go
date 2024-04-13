@@ -44,7 +44,7 @@ func Plot(histories ...*History) (io.WriterTo, error) {
 		return nil, err
 	}
 
-	writerTo, err := p.WriterTo(10*vg.Centimeter, 5*vg.Centimeter, "png")
+	writerTo, err := p.WriterTo(32*vg.Centimeter, 18*vg.Centimeter, "png")
 	if err != nil {
 		return nil, err
 	}
